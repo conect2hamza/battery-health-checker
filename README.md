@@ -112,5 +112,12 @@ with `python3 tools/make_icon.py` (standard library only).
 
 ## Verification status
 
-See [docs/acceptance.md](docs/acceptance.md) for the point-by-point acceptance checklist,
-**including what has not been verified on real hardware.**
+Two documents, kept reconciled:
+
+- **[docs/audit.md](docs/audit.md)** — the bug register. Every defect ever raised, its
+  severity, root cause, and whether the fix is *verified* or merely *believed correct*.
+- **[docs/acceptance.md](docs/acceptance.md)** — requirement coverage against the spec.
+
+Read the short version first: **no value has ever been read from real battery hardware.**
+Everything verified in this project was verified against synthetic inputs. The suite is
+green on Windows and one earlier release still could not start.

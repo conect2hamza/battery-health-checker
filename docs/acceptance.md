@@ -1,6 +1,11 @@
 # Acceptance checklist
 
-Point-by-point status against section 31 of the SRS.
+**Current version: 1.0.2.** Point-by-point status against section 31 of the SRS.
+
+For defect history, severity and root causes see [audit.md](audit.md), which is the
+authoritative bug register. This file tracks requirement coverage; that one tracks
+defects. Where they touch the same subject they must agree, and this file was last
+reconciled against the audit at 1.0.2.
 
 Three states are used, and the distinction matters:
 
@@ -25,22 +30,22 @@ Three states are used, and the distinction matters:
 
 | # | Requirement | Status | Evidence |
 |---|---|---|---|
-| 9 | Battery detected correctly | Implemented | Four-source collector chain; **not verified on hardware** |
+| 9 | Battery detected correctly | Implemented | Four-source collector chain. Since 1.0.2 a battery the hardware identifies as not the system pack (a UPS, a peripheral) can no longer lead the list or drive the headline - BUG-001. **Still not verified on hardware.** |
 | 10 | Battery percentage shown | Implemented | Derived from this battery's own capacities when possible; `BatteryRepositoryTests.Charge_percent_is_derived_from_this_batterys_own_capacities` |
 | 11 | Design capacity shown | Implemented | IOCTL `BatteryInformation.DesignedCapacity`, with three fallbacks |
 | 12 | Full-charge capacity shown | Implemented | IOCTL + `BatteryFullChargedCapacity` |
 | 13 | Current capacity shown | Implemented | IOCTL `BATTERY_STATUS.Capacity` |
 | 14 | Health calculated correctly | Implemented + tested | `BatteryHealthCalculatorTests` - 14 cases including the SRS worked example |
 | 15 | Wear calculated correctly | Implemented + tested | Same |
-| 16 | Charging status shown | Implemented + tested | `ChemistryMappingTests.Maps_Win32_Battery_status_codes` |
-| 17 | AC status shown | Implemented + tested | Same, plus `GetSystemPowerStatus` |
+| 16 | Charging status shown | Implemented + tested | `ChemistryMappingTests.Maps_Win32_Battery_status_codes`, plus `AuditRegressionTests` for the 1.0.2 reconciliation: a measured power-flow sign now outranks a reported state - BUG-005 |
+| 17 | AC status shown | Implemented + tested | Same, plus `GetSystemPowerStatus`. Charging now forces mains to connected, because a pack cannot take charge without external power - BUG-005 |
 | 18 | Cycle count when available | Implemented + tested | A firmware `0` is treated as "not tracked", not as a real zero |
 | 19 | Temperature when available | Implemented + tested | Kelvin-to-C/F conversion tested; readings outside -60 C..+150 C rejected |
 | 20 | Voltage when available | Implemented + tested | `BatteryStatusServiceTests.Voltage_is_shown_in_volts` |
 | 21 | Runtime when available | Implemented + tested | Formatting and the Calculating/Not Available distinction tested; suppressed while charging |
-| 22 | Multiple batteries supported | Implemented + tested | `BatteryRepositoryTests` covers separate health figures and refusing to attribute a whole-system reading to one pack |
+| 22 | Multiple batteries supported | Implemented + tested | `BatteryRepositoryTests` covers separate health figures and refusing to attribute a whole-system reading to one pack. Since 1.0.2 the system battery is ordered first and peripherals are labelled - BUG-001 |
 | 23 | Missing values handled | Implemented + tested | `MeasuredTests` + `BatteryStatusServiceTests` |
-| 24 | No fabricated values | Implemented + tested | `Measured<T>` makes it a type-level property; JSON emits no `value` key at all when unavailable |
+| 24 | No fabricated values | Implemented + tested | `Measured<T>` makes it a type-level property; JSON emits no `value` key at all when unavailable. 1.0.2 closed the one path that still fabricated: a capacity unit taken from the wrong source could label real mWh as "relative units" - BUG-004 |
 
 ## Features
 
@@ -59,7 +64,7 @@ Three states are used, and the distinction matters:
 | 30 | No hidden services | Implemented | Single process, no service installation |
 | 31 | No registry installation | Implemented | Registry is read-only (theme preference, Windows edition name) |
 | 32 | No system modifications | Implemented | No BIOS, charging-limit or security calls anywhere |
-| 33 | Error handling implemented | Implemented | Collectors never throw; `Program.cs` installs both unhandled-exception handlers |
+| 33 | Error handling implemented | Implemented | Collectors never throw; `Program.cs` installs both unhandled-exception handlers. 1.0.2 stopped a scan continuation writing to a disposed window after close - BUG-003, fix **not yet verified on hardware** |
 | 34 | Clean Windows test completed | **Not verified** | Needs a machine without the .NET SDK |
 | 35 | USB portable test completed | **Not verified** | Needs physical media |
 
@@ -80,18 +85,53 @@ These need a real Windows laptop and cannot be closed from CI:
 The first run on real hardware is where the ACPI edge cases will surface. Everything above
 is written to degrade to `Not Available` rather than crash when they do.
 
-## Startup crash in 1.0.0, fixed in 1.0.1
+## Defect history
 
-Version 1.0.0 failed on launch with *"Control does not support transparent background
-colors."* Four custom controls assigned `Color.Transparent` without first setting
+Full entries, with root causes and verification evidence, are in [audit.md](audit.md).
+
+### 1.0.0 → 1.0.1 — the application could not start
+
+Every launch ended in *"Control does not support transparent background colors."* Four
+custom controls assigned `Color.Transparent` without first setting
 `ControlStyles.SupportsTransparentBackColor`, which a bare `Control` rejects at
-construction; `Panel`, `TableLayoutPanel`, `UserControl` and `ButtonBase` set that flag
-themselves, which is why the controls derived from those were unaffected.
+construction.
 
-The real failure was in the tests, not the fix: 92 tests covered the calculation,
-merging and reporting layers and not one of them constructed a control, so a defect that
-made the application unable to start got a green build. `UiSmokeTests` now constructs and
-paints every control and every view, in both themes, against five snapshot shapes -
-normal, second battery selected, no battery, nothing reported, and an implausible
-reading. Constructing a control catches this class of defect; painting it catches the
-next one.
+The real failure was in the tests, not the fix: 92 tests covered calculation, merging and
+reporting, and not one constructed a control, so a defect that made the application
+unable to start produced a green build. `UiSmokeTests` now constructs and paints every
+control and view, in both themes, against five snapshot shapes.
+
+### 1.0.1 → 1.0.2 — six defects found by audit
+
+Two of them displayed information that was confidently wrong rather than absent: a UPS
+could be presented as this computer's battery (BUG-001), and a genuine milliwatt-hour
+capacity could be labelled "relative units" (BUG-004). All six are fixed. Eleven
+regression tests reproduce the probes that exposed them, including inverse cases.
+
+One issue remains open across the whole project: **SECURITY-001**, the unsigned binary,
+which needs a purchased certificate.
+
+## Test coverage
+
+**106 automated tests, green on `windows-latest`** - 101 of which also run headless on
+Linux; the 5 UI cases need Windows.
+
+Passing tests are not evidence about hardware. Two releases have now been shipped on the
+strength of a green build, and the first of them could not start.
+
+## What has still not been done
+
+Unchanged by 1.0.2, and this is what blocks release:
+
+1. **Any reading from real battery hardware.** Every figure ever verified in this project
+   came from synthetic inputs.
+2. **SRS 27 hardware matrix** - Dell, HP, Lenovo, ASUS, Acer, MSI, Surface. Vendor ACPI
+   implementations differ in exactly the places this tool reads.
+3. **Clean-machine and USB execution** (SRS 28) - CI proves the output is a lone EXE, not
+   that it launches where no runtime is installed.
+4. **Live states** - charging, discharging, fully charged, AC connected and disconnected,
+   a degraded pack, a genuine multi-battery machine.
+5. **Standard user vs administrator** on hardware that actually denies access, which
+   decides whether the administrator hint is ever shown.
+6. **Looking at the window.** It paints without throwing at every build. That is not the
+   same as being laid out correctly at your DPI.
