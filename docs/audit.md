@@ -6,11 +6,53 @@
 | **Date** | 15 September 2026 |
 | **Reviewer** | Claude Opus 5 — **the author of the code under review** |
 | **Method** | Source inspection + executed probes against the calculation and merge layers |
-| **Overall status** | **NEEDS IMPROVEMENT** |
+| **Overall status** | **APPROVED WITH CONDITIONS** |
 
 ---
 
-## 0. Auditor independence — read this first
+## 0. Status vocabulary
+
+Used consistently throughout. The distinction between the last two is the whole point of
+keeping this file.
+
+| Status | Meaning |
+|---|---|
+| **Open** | Not fixed. |
+| **Fixed · Verified** | Fix is in, and an executed test or probe demonstrates the defect is gone. |
+| **Fixed · Verification pending** | Fix is in and correct by inspection, but nothing executable demonstrates it. Reproducing the defect needs hardware, timing or a human. |
+| **NOT TESTED** | No evidence either way. Never scored. |
+
+A fix marked *Verification pending* is not the same as a fix marked *Verified*, and this
+report does not blur them. Version 1.0.0 shipped because a green build was mistaken for
+evidence.
+
+---
+
+## 0c. Bug register
+
+Every issue ever raised against this application, current status. Nothing is deleted.
+
+| ID | Title | Severity | Raised | Status |
+|---|---|---|---|---|
+| BUG-000 | Application could not start — transparent control backgrounds | Critical | 1.0.0 | **Fixed 1.0.1 · Verified** |
+| BUG-001 | Non-system battery (UPS) presented as the laptop pack | High | 1.0.1 | **Fixed 1.0.2 · Verified** |
+| BUG-002 | `ReportedNoBattery` written and never read | Medium | 1.0.1 | **Fixed 1.0.2 · Verified** |
+| BUG-003 | Error dialog after closing during a scan | Medium | 1.0.1 | **Fixed 1.0.2 · Verification pending** |
+| BUG-004 | Real mWh capacity labelled "relative units" | High | 1.0.1 | **Fixed 1.0.2 · Verified** |
+| BUG-005 | Contradictory charge and mains state displayed | Medium | 1.0.1 | **Fixed 1.0.2 · Verified** |
+| BUG-006 | Negative capacity reported as missing, not invalid | Low | 1.0.1 | **Fixed 1.0.2 · Verified** |
+| SECURITY-001 | Binary is unsigned | Medium | 1.0.1 | **Open** |
+| SECURITY-002 | `UseShellExecute` on a stored directory path | Low | 1.0.1 | **Fixed 1.0.2 · Verification pending** |
+| IMPROVEMENT-001 | Whole-system readings discarded on count mismatch | — | 1.0.1 | Planned |
+| IMPROVEMENT-002 | Per-field source precedence | — | 1.0.1 | Planned |
+| IMPROVEMENT-003 | Dead code | — | 1.0.1 | **Completed 1.0.2** |
+
+**Open: 1** (SECURITY-001, needs a purchased certificate).
+**Fixed and verified: 7.** **Fixed, verification pending: 2.**
+
+No defect found by this audit remains open in code.
+
+## 0b. Auditor independence — read this first
 
 This audit was performed by the same agent that wrote the code. That is a material
 defect in the audit, not a formality.
@@ -39,7 +81,7 @@ independent reviewer, and a real laptop, are both still required.
 | Compatibility | **NOT TESTED** | Zero manufacturer coverage |
 | Portable EXE reliability | **85 / 100** | Single-file contract machine-verified every build; never launched |
 
-### Status: `NEEDS IMPROVEMENT`
+### Status: `APPROVED WITH CONDITIONS`
 
 Upgraded from `NOT READY` in 1.0.1. All six defects found by this audit are fixed, and
 each is pinned by a regression test reproducing the probe that exposed it.
@@ -191,7 +233,7 @@ being trained to click through that warning. Publisher identity is unverifiable.
 **Recommendation:** OV or EV code-signing certificate before wider distribution.
 
 ### SECURITY-002 — `UseShellExecute` on a stored directory path
-**Severity:** Low · **Status:** **Fixed in 1.0.2**
+**Severity:** Low · **Status:** **Fixed in 1.0.2 · Verification pending**
 
 `ReportsView.OpenReportFolder` calls `Process.Start` with `UseShellExecute = true` on
 `Settings.ReportDirectory`. The path is user-chosen and existence-checked, so exploitation
@@ -199,7 +241,7 @@ requires the user to have already selected a malicious target.
 
 **Fixed in 1.0.2.** Explorer is now named explicitly and the folder passed via
 `ArgumentList` with `UseShellExecute = false`, so the stored path is never resolved as a
-shell verb.
+shell verb. **Verification pending:** launching Explorer cannot be exercised in CI.
 
 ---
 
@@ -265,6 +307,8 @@ and a source that never read the capability can no longer overwrite one that did
 dashboard headline, the battery selector and Battery Details all name a peripheral pack
 explicitly. Probe D now returns `"Laptop pack" health=95%`.
 
+**Verified by:** probe D re-run (`"APC Back-UPS" health=50%` → `"Laptop pack" health=95%`) and three tests in `AuditRegressionTests` — peripheral ordering, unreported capability, and an unreporting source failing to overwrite a known one.
+
 ---
 
 ## BUG-002
@@ -293,7 +337,9 @@ produced a *system* battery, return an empty snapshot with an explanatory issue.
 ### Verification
 Probe F must yield `HasBattery=False`.
 ### Status
-**Open**
+**Fixed in 1.0.2 · Verified**
+
+**Verified by:** probe F re-run (`HasBattery=True count=1` → `HasBattery=False count=0`) and two tests — phantom rejection, and a confirmed system battery surviving a contradictory flag.
 
 ---
 
@@ -326,12 +372,14 @@ Return early after the `await` when `IsDisposed || Disposing`, and guard the `fi
 Automated: a test that starts a scan, disposes the form, and asserts no exception
 surfaces. Manual: rapid open/close with 1-second auto-refresh.
 ### Status
-**Fixed in 1.0.2 · Verified**
+**Fixed in 1.0.2 · Verification pending**
 
 `RunScanAsync` returns early after the `await` when the form is disposed or disposing,
 and both the status text and the `finally` are guarded. **Verification status: the guard
 is correct by inspection; the timing-dependent reproduction is `NOT TESTED` — it needs a
 Windows machine.**
+
+**Verification pending.** The guard is correct by inspection, but reproducing the race needs a Windows machine and a close during an in-flight scan. No automated test covers it, and none in this suite could. `NOT TESTED — Evidence/environment unavailable`.
 
 ---
 
@@ -371,6 +419,8 @@ kept against its own source in `CapacityUnitBySource`, and `ResolveCapacityUnit`
 unit belonging to whichever source actually supplied the capacity on display. Probe A now
 returns `60,000 mWh`. A genuinely relative device still never shows `mWh`.
 
+**Verified by:** probe A re-run (`60,000 (relative units)` → `60,000 mWh`) and two tests, including the inverse case: a genuinely relative device must still never show `mWh`.
+
 ---
 
 ## BUG-005
@@ -407,6 +457,8 @@ claims "fully charged" on battery power as discharging. The override is recorded
 collection issue so it appears in reports rather than happening silently. Probe E now
 returns `ac=Connected`.
 
+**Verified by:** probe E re-run (`ac=Disconnected` → `ac=Connected`) and three tests — mains reconciliation, a measured discharge rate overriding a reported charging state, and "fully charged" on battery power.
+
 ---
 
 ## BUG-006
@@ -426,6 +478,8 @@ Add `InvalidFullChargeCapacity`.
 **Fixed in 1.0.2 · Verified**
 
 Added `HealthUnavailableReason.InvalidFullChargeCapacity`.
+
+**Verified by:** one test asserting `InvalidFullChargeCapacity` rather than `NoFullChargeCapacity`.
 
 ---
 
@@ -521,7 +575,12 @@ appears beside the EXE.
 
 ## 12. Testing status
 
-**113 automated tests, all passing on `windows-latest`.**
+**106 automated tests, all passing on `windows-latest`** (101 of them also run headless on
+Linux; the 5 UI cases need Windows).
+
+> **Correction.** The 1.0.2 commit message states "twelve regression tests" and "113 tests".
+> Both are wrong: there are **11** regression tests and **106** total. The commit message is
+> immutable history, so the error is recorded here rather than rewritten.
 
 | Layer | Covered |
 |---|---|
@@ -532,8 +591,8 @@ appears beside the EXE.
 | Chemistry / status mapping | 18 |
 | Report writers | 13 |
 | Settings | 5 |
-| **Audit regressions** | **12** — one per fixed defect, plus inverse cases |
-| **UI construction and paint** | **5** — every control and view, both themes, five snapshot shapes |
+| **Audit regressions** | **11** — one or more per fixed defect, plus inverse cases |
+| **UI construction and paint** | **5** cases from 3 methods — every control and view, both themes, five snapshot shapes |
 
 ### NOT TESTED — Evidence/environment unavailable
 
@@ -601,21 +660,23 @@ synthetic inputs by the person who wrote the code being tested.
 - [ ] Nothing. No security, data-loss or arithmetic defect found.
 
 ### 🟠 High priority
-- [ ] **BUG-001** — filter/label non-system batteries so a UPS cannot masquerade as the laptop pack
-- [ ] **BUG-004** — bind capacity unit to the source of the winning value, not to the anchor
-- [ ] Run on real hardware from three or more manufacturers and record what is populated
+- [ ] **Run it on three or more laptops from different manufacturers** and record whether design capacity, full-charge capacity and cycle count are actually populated. This is now the only thing standing between the application and release.
+- [x] ~~BUG-001 — filter/label non-system batteries~~ — fixed 1.0.2
+- [x] ~~BUG-004 — bind capacity unit to the source of the winning value~~ — fixed 1.0.2
 
 ### 🟡 Medium priority
-- [ ] **BUG-002** — consume `ReportedNoBattery`
-- [ ] **BUG-003** — guard the post-`await` continuation against a disposed form
-- [ ] **BUG-005** — reconcile contradictory charge/AC state
 - [ ] **SECURITY-001** — obtain a code-signing certificate
+- [ ] Confirm **BUG-003** on Windows by closing the window during a scan with auto-refresh at one second
 - [ ] **IMPROVEMENT-001** — surface whole-system readings instead of discarding them
+- [x] ~~BUG-002 — consume `ReportedNoBattery`~~ — fixed 1.0.2
+- [x] ~~BUG-003 — guard the post-`await` continuation~~ — fixed 1.0.2, verification pending
+- [x] ~~BUG-005 — reconcile contradictory charge/AC state~~ — fixed 1.0.2
 
 ### 🔵 Low priority
-- [ ] **BUG-006** — add `InvalidFullChargeCapacity`
-- [ ] **SECURITY-002** — launch Explorer with the folder as an argument
-- [ ] **IMPROVEMENT-003** — remove dead code
+- [ ] **IMPROVEMENT-002** — per-field source precedence
+- [x] ~~BUG-006 — add `InvalidFullChargeCapacity`~~ — fixed 1.0.2
+- [x] ~~SECURITY-002 — launch Explorer with the folder as an argument~~ — fixed 1.0.2
+- [x] ~~IMPROVEMENT-003 — remove dead code~~ — completed 1.0.2
 
 ### 💡 Future
 - [ ] Independent review by someone who did not write the code
