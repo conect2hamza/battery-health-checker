@@ -16,8 +16,8 @@ internal static class Program
             return 1;
         }
 
+        // Applies ApplicationHighDpiMode (PerMonitorV2) from the project file.
         ApplicationConfiguration.Initialize();
-        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 
         var log = new LogService();
         var settingsService = new SettingsService(log);
