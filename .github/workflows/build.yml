@@ -6,6 +6,13 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Publish a release with this tag (e.g. v1.0.0), creating the tag on the
+          dispatched ref. Leave empty to build without releasing.
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -97,7 +104,8 @@ jobs:
 
   release:
     name: Attach EXEs to release
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Runs for a pushed v* tag, or when a dispatch supplies a tag to publish.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -118,5 +126,27 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          # On a dispatch the tag does not exist yet; the action creates it on the
+          # commit that was built.
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: Battery Health Checker ${{ github.event.inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Portable Windows laptop battery diagnostic utility.
+
+            Download the executable for your architecture, double-click it, and it
+            opens. No installer, no runtime to install, no administrator rights and
+            no network access.
+
+            | File | For |
+            |---|---|
+            | `BatteryHealthChecker-win-x64.exe` | Most Windows 10/11 laptops |
+            | `BatteryHealthChecker-win-arm64.exe` | Windows on ARM (Snapdragon, some Surface) |
+
+            Values this computer does not report are shown as `Not Available` rather
+            than guessed. Health is an estimate derived from the capacity the battery
+            firmware reports, not an absolute diagnosis.
+
+            See `docs/acceptance.md` for what is verified and what is not.
           files: release/*.exe
           fail_on_unmatched_files: true
