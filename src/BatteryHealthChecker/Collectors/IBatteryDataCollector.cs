@@ -19,6 +19,29 @@ internal sealed class CollectedBattery
 
     public BatteryInfo Info { get; init; } = new();
     public BatteryStatus Status { get; init; } = new();
+
+    /// <summary>
+    /// The capacity unit each contributing source declared.
+    ///
+    /// Capacities and their units must travel together: a device advertising
+    /// BATTERY_CAPACITY_RELATIVE reports unitless numbers, and a merge that takes a
+    /// milliwatt-hour value from one source while keeping another source's "relative"
+    /// label prints a real measurement under a unit the hardware never reported
+    /// (BUG-004). Populated during the merge, keyed by the source of the reading.
+    /// </summary>
+    public Dictionary<DataSource, CapacityUnit> CapacityUnitBySource { get; } = new();
+
+    /// <summary>The strongest source that contributed to this record.</summary>
+    public DataSource PrimarySource
+    {
+        get
+        {
+            DataSource highest = DataSource.None;
+            foreach (DataSource source in Info.ContributingSources) if (source > highest) highest = source;
+            foreach (DataSource source in Status.ContributingSources) if (source > highest) highest = source;
+            return highest;
+        }
+    }
 }
 
 /// <summary>Everything one collector managed to read in a single pass.</summary>

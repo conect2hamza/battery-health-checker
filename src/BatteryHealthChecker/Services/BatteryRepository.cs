@@ -30,6 +30,10 @@ internal static class BatteryRepository
             .Select(r => r.AcPower)
             .FirstOrDefault(state => state != AcPowerState.Unknown);
 
+        // SRS 19 / BUG-002: GetSystemPowerStatus is the authority on "this machine has
+        // no system battery". It is consumed below to reject phantom device entries.
+        bool systemReportsNoBattery = results.Any(r => r.ReportedNoBattery);
+
         List<CollectionResult> withBatteries = results
             .Where(r => r.Batteries.Count > 0)
             .OrderByDescending(HighestSource)
@@ -42,6 +46,7 @@ internal static class BatteryRepository
                 TimestampUtc = DateTime.UtcNow,
                 Batteries = Array.Empty<BatteryReading>(),
                 AcPower = ac,
+                SystemReportsNoBattery = systemReportsNoBattery,
                 Issues = distinctIssues,
             };
         }
@@ -51,6 +56,11 @@ internal static class BatteryRepository
         // in. That is safe because every collector builds fresh objects for each scan,
         // so nothing outside this merge holds a reference to them.
         List<CollectedBattery> merged = anchor.Batteries.OrderBy(b => b.Ordinal).ToList();
+
+        foreach (CollectedBattery battery in merged)
+        {
+            RecordCapacityUnit(battery, battery);
+        }
 
         foreach (CollectionResult other in withBatteries.Skip(1))
         {
@@ -66,6 +76,31 @@ internal static class BatteryRepository
             }
         }
 
+        // BUG-002: when Windows positively reports no system battery, an entry that was
+        // never confirmed as the system pack is a stale or phantom device, not a battery.
+        if (systemReportsNoBattery)
+        {
+            int before = merged.Count;
+            merged = merged.Where(b => b.Info.IsConfirmedSystemBattery).ToList();
+
+            if (merged.Count < before)
+            {
+                distinctIssues.Add(new CollectionIssue(
+                    DataSource.SystemPowerStatus,
+                    $"Windows reports that this computer has no system battery, so "
+                    + $"{before - merged.Count} detected battery device"
+                    + $"{(before - merged.Count == 1 ? " was" : "s were")} not shown.",
+                    ElevationMayHelp: false));
+            }
+        }
+
+        // BUG-001: the machine's own battery leads. A UPS or peripheral pack must never
+        // become "Battery 1" and drive the health headline. Ordering is stable within
+        // each group, so enumeration order is preserved among equals.
+        merged = merged
+            .OrderByDescending(b => b.Info.IsConfirmedSystemBattery ? 2 : b.Info.IsConfirmedPeripheral ? 0 : 1)
+            .ToList();
+
         var readings = new List<BatteryReading>(merged.Count);
         for (int i = 0; i < merged.Count; i++)
         {
@@ -73,7 +108,7 @@ internal static class BatteryRepository
             battery.Info.Index = i;
             battery.Status.DeviceKey = battery.Info.DeviceKey;
 
-            Finalize(battery);
+            Finalize(battery, distinctIssues);
 
             readings.Add(new BatteryReading
             {
@@ -91,8 +126,19 @@ internal static class BatteryRepository
             AcPower = ac != AcPowerState.Unknown
                 ? ac
                 : readings.Select(r => r.Status.AcPower).FirstOrDefault(s => s != AcPowerState.Unknown),
+            SystemReportsNoBattery = systemReportsNoBattery,
             Issues = distinctIssues,
         };
+    }
+
+    /// <summary>Notes the capacity unit a record's own source declared (BUG-004).</summary>
+    private static void RecordCapacityUnit(CollectedBattery target, CollectedBattery source)
+    {
+        DataSource from = source.PrimarySource;
+        if (from != DataSource.None && source.Info.CapacityUnit != CapacityUnit.Unknown)
+        {
+            target.CapacityUnitBySource[from] = source.Info.CapacityUnit;
+        }
     }
 
     private static DataSource HighestSource(CollectionResult result)
@@ -149,7 +195,15 @@ internal static class BatteryRepository
         target.UniqueId ??= candidate.UniqueId;
 
         if (info.Chemistry == BatteryChemistry.Unknown) info.Chemistry = extra.Chemistry;
-        if (info.CapacityUnit == CapacityUnit.Unknown) info.CapacityUnit = extra.CapacityUnit;
+
+        // The unit is NOT copied onto the target here. It is kept against the source that
+        // declared it and resolved in Finalize against whichever source actually supplied
+        // the capacity that won the merge (BUG-004).
+        RecordCapacityUnit(target, candidate);
+
+        // Only a source that read the capability bit may settle this; a source that said
+        // nothing must not overwrite a positive or negative answer (BUG-001).
+        info.IsSystemBattery ??= extra.IsSystemBattery;
 
         info.DesignCapacity = info.DesignCapacity.Or(extra.DesignCapacity);
         info.FullChargeCapacity = info.FullChargeCapacity.Or(extra.FullChargeCapacity);
@@ -186,7 +240,7 @@ internal static class BatteryRepository
     /// Derives the values that follow from other readings, and applies the last of the
     /// SRS 20 sanity checks before anything reaches the UI.
     /// </summary>
-    private static void Finalize(CollectedBattery battery)
+    private static void Finalize(CollectedBattery battery, List<CollectionIssue> issues)
     {
         BatteryInfo info = battery.Info;
         BatteryStatus status = battery.Status;
@@ -196,6 +250,8 @@ internal static class BatteryRepository
         info.FullChargeCapacity = info.FullChargeCapacity.Where(
             v => v > 0, "Reported full-charge capacity was not positive.");
         status.RemainingCapacity = status.RemainingCapacity.Where(v => v >= 0);
+
+        ResolveCapacityUnit(battery);
 
         // A per-battery percentage computed from this battery's own capacities is more
         // accurate than the whole-system estimate, so it supersedes it when available.
@@ -226,21 +282,80 @@ internal static class BatteryRepository
             status.RuntimeIsCalculating = true;
         }
 
-        if (status.RateMilliwatts.IsAvailable)
+        ReconcileState(battery, issues);
+    }
+
+    /// <summary>
+    /// Resolves the capacity unit against the source that actually supplied the capacity
+    /// on display, rather than against whichever record anchored the merge (BUG-004).
+    /// </summary>
+    private static void ResolveCapacityUnit(CollectedBattery battery)
+    {
+        BatteryInfo info = battery.Info;
+
+        // Design capacity is the figure the other two are compared against, so its source
+        // settles the unit; the remaining readings fall back in order of significance.
+        foreach (Measured<long> reading in new[]
+                 {
+                     info.DesignCapacity, info.FullChargeCapacity, battery.Status.RemainingCapacity,
+                 })
         {
-            // The sign of the rate is the authoritative direction of energy flow; use it
-            // to correct a state that a weaker source may have guessed wrong.
-            int rate = status.RateMilliwatts.Value;
-            if (rate > 0 && status.ChargeState == ChargeState.Unknown) status.ChargeState = ChargeState.Charging;
-            if (rate < 0 && status.ChargeState == ChargeState.Unknown) status.ChargeState = ChargeState.Discharging;
+            if (!reading.IsAvailable) continue;
+            if (battery.CapacityUnitBySource.TryGetValue(reading.Source, out CapacityUnit unit)
+                && unit != CapacityUnit.Unknown)
+            {
+                info.CapacityUnit = unit;
+                return;
+            }
         }
 
-        if (info.CapacityUnit == CapacityUnit.Unknown && info.DesignCapacity.IsAvailable)
+        if (info.CapacityUnit != CapacityUnit.Unknown) return;
+
+        // Every Windows source that reports an absolute capacity reports milliwatt-hours;
+        // only a device advertising BATTERY_CAPACITY_RELATIVE differs, and the collectors
+        // detect that explicitly.
+        if (info.DesignCapacity.IsAvailable || info.FullChargeCapacity.IsAvailable)
         {
-            // Every Windows source that reports an absolute capacity reports milliwatt-hours;
-            // only a device advertising BATTERY_CAPACITY_RELATIVE differs, and that is
-            // detected explicitly by the collectors.
             info.CapacityUnit = CapacityUnit.MilliwattHours;
+        }
+    }
+
+    /// <summary>
+    /// Removes contradictions between the charge state and the mains state before either
+    /// reaches the UI (SRS 8: the interface must never show contradictory information).
+    ///
+    /// Two physical facts drive this: the sign of the power flow is the ground truth for
+    /// direction, and a battery cannot take charge without external power.
+    /// </summary>
+    private static void ReconcileState(CollectedBattery battery, List<CollectionIssue> issues)
+    {
+        BatteryStatus status = battery.Status;
+
+        if (status.RateMilliwatts.IsAvailable && status.RateMilliwatts.Value != 0)
+        {
+            ChargeState fromRate = status.RateMilliwatts.Value > 0
+                ? ChargeState.Charging
+                : ChargeState.Discharging;
+
+            // A measured direction of energy flow outranks any reported state, including
+            // one a stronger source guessed wrong (BUG-005).
+            status.ChargeState = fromRate;
+        }
+
+        if (status.ChargeState == ChargeState.Charging && status.AcPower == AcPowerState.Disconnected)
+        {
+            status.AcPower = AcPowerState.Connected;
+            issues.Add(new CollectionIssue(
+                DataSource.Calculated,
+                "This battery reported that it is charging while also reporting that mains power "
+                + "is disconnected. Charging requires external power, so it is shown as connected.",
+                ElevationMayHelp: false));
+        }
+
+        if (status.ChargeState == ChargeState.FullyCharged && status.AcPower == AcPowerState.Disconnected)
+        {
+            // "Fully charged" is a mains-present state; on battery the pack is discharging.
+            status.ChargeState = ChargeState.Discharging;
         }
     }
 }

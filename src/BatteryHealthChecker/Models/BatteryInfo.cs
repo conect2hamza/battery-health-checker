@@ -37,8 +37,21 @@ public sealed class BatteryInfo
     /// <summary>Nominal design voltage in millivolts.</summary>
     public Measured<int> DesignVoltageMillivolts { get; set; } = Measured<int>.Unavailable();
 
-    /// <summary>True when the device reports itself as a system (not UPS/peripheral) battery.</summary>
-    public bool IsSystemBattery { get; set; } = true;
+    /// <summary>
+    /// Whether the device reports itself as the system battery (BATTERY_SYSTEM_BATTERY).
+    ///
+    /// Null means the source did not report the capability at all, which is different
+    /// from reporting false: a UPS or peripheral pack says false, while a source that
+    /// never read the flag says nothing. The merge treats those differently, so that a
+    /// UPS can never be presented as the laptop's own battery (BUG-001).
+    /// </summary>
+    public bool? IsSystemBattery { get; set; }
+
+    /// <summary>True only when the hardware positively identified this as the system battery.</summary>
+    public bool IsConfirmedSystemBattery => IsSystemBattery == true;
+
+    /// <summary>True only when the hardware positively said this is NOT the system battery.</summary>
+    public bool IsConfirmedPeripheral => IsSystemBattery == false;
 
     /// <summary>Collectors that contributed to this record, for the diagnostics section of a report.</summary>
     public List<DataSource> ContributingSources { get; } = new();

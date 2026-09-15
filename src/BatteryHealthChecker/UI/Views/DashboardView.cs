@@ -110,7 +110,10 @@ public sealed class DashboardView : ViewBase
         ApplyTheme(theme);
 
         BatteryReading? reading = state.SelectedBattery;
-        bool hasBattery = reading is not null;
+
+        // A machine whose only batteries are peripherals (a UPS, a dock) has no battery
+        // of its own to report on, and saying otherwise would be the BUG-001 failure.
+        bool hasBattery = reading is not null && !state.Snapshot.SystemReportsNoBattery;
 
         _emptyCard.Visible = !hasBattery;
         _headlineCard.Visible = hasBattery;
@@ -132,9 +135,11 @@ public sealed class DashboardView : ViewBase
         BatteryStatus status = reading.Status;
         HealthResult health = reading.Health;
 
-        string caption = state.Snapshot.Batteries.Count > 1
-            ? $"Battery Health - {info.DisplayName}"
-            : "Battery Health";
+        string caption = info.IsConfirmedPeripheral
+            ? $"{info.DisplayName} - not this PC's battery"
+            : state.Snapshot.Batteries.Count > 1
+                ? $"Battery Health - {info.DisplayName}"
+                : "Battery Health";
         _headline.SetHealth(health, caption);
 
         RenderCapacityBars(info, status, theme);
@@ -191,6 +196,12 @@ public sealed class DashboardView : ViewBase
     private void RenderBanner(AppState state, BatteryReading? reading)
     {
         var messages = new List<string>();
+
+        if (reading?.Info.IsConfirmedPeripheral == true)
+        {
+            messages.Add("This is an attached battery device, not this computer's own battery. "
+                         + "Its health does not describe your laptop's pack.");
+        }
 
         if (reading?.Health.IsSuspicious == true && reading.Health.Warning is { } warning)
         {

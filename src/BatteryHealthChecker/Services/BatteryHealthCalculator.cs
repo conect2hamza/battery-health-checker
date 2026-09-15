@@ -60,7 +60,9 @@ public static class BatteryHealthCalculator
             return new HealthResult
             {
                 IsAvailable = false,
-                Reason = HealthUnavailableReason.NoFullChargeCapacity,
+                // The value was reported; it is simply not usable. Saying "not reported"
+                // here would misdescribe the hardware in the report (BUG-006).
+                Reason = HealthUnavailableReason.InvalidFullChargeCapacity,
                 Warning = "The reported full-charge capacity is negative, so health cannot be calculated.",
             };
         }

@@ -95,6 +95,7 @@ public sealed class JsonReportWriter : IReportWriter
                 chemistryRaw = info.ChemistryRaw,
                 manufactureDate = info.ManufactureDate?.ToString("yyyy-MM-dd"),
                 isSystemBattery = info.IsSystemBattery,
+                isSystemBatteryReported = info.IsSystemBattery.HasValue,
             },
             capacity = new
             {

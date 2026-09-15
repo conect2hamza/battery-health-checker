@@ -245,11 +245,16 @@ public sealed class ReportsView : ViewBase
                 return;
             }
 
-            // Opens Explorer on the folder. UseShellExecute is required for a directory
-            // path, and the path is one the user chose - nothing downloaded or remote.
+            // Explorer is named explicitly and the folder is passed as an argument, so
+            // the path is never resolved as a shell verb - a path that happened to name an
+            // executable would be opened in a window, not run (SECURITY-002).
             using var process = new System.Diagnostics.Process
             {
-                StartInfo = new System.Diagnostics.ProcessStartInfo(directory) { UseShellExecute = true },
+                StartInfo = new System.Diagnostics.ProcessStartInfo("explorer.exe")
+                {
+                    ArgumentList = { directory },
+                    UseShellExecute = false,
+                },
             };
             process.Start();
         }

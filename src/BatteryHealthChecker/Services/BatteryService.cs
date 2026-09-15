@@ -152,6 +152,7 @@ public sealed class BatteryService
             info.ChemistryRaw ??= previous.Info.ChemistryRaw;
             info.ManufactureDate ??= previous.Info.ManufactureDate;
             if (info.Chemistry == BatteryChemistry.Unknown) info.Chemistry = previous.Info.Chemistry;
+            info.IsSystemBattery ??= previous.Info.IsSystemBattery;
             if (info.CapacityUnit == CapacityUnit.Unknown) info.CapacityUnit = previous.Info.CapacityUnit;
 
             info.DesignCapacity = info.DesignCapacity.Or(previous.Info.DesignCapacity);

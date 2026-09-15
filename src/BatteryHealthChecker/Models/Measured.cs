@@ -60,10 +60,6 @@ public readonly struct Measured<T> where T : struct
     public static Measured<T> From(T value, DataSource source, string? note = null) =>
         new(value, true, source, note);
 
-    /// <summary>Creates a reading from a nullable, collapsing null to <see cref="Unavailable"/>.</summary>
-    public static Measured<T> FromNullable(T? value, DataSource source, string? note = null) =>
-        value.HasValue ? From(value.Value, source, note) : Unavailable(note);
-
     /// <summary>
     /// Returns whichever reading is available; when both are, the one from the more
     /// authoritative source wins. This is the merge rule for the collector chain.
@@ -78,10 +74,6 @@ public readonly struct Measured<T> where T : struct
     /// <summary>Drops the reading when it fails a sanity check (SRS 20: data validation).</summary>
     public Measured<T> Where(Func<T, bool> predicate, string? rejectionNote = null) =>
         IsAvailable && !predicate(_value) ? Unavailable(rejectionNote) : this;
-
-    /// <summary>Projects an available reading, preserving source and availability.</summary>
-    public Measured<TOut> Select<TOut>(Func<T, TOut> selector) where TOut : struct =>
-        IsAvailable ? Measured<TOut>.From(selector(_value), Source, Note) : Measured<TOut>.Unavailable(Note);
 
     /// <summary>Attaches an explanatory note without changing the reading.</summary>
     public Measured<T> WithNote(string? note) => new(_value, IsAvailable, Source, note);

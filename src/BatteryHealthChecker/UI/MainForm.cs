@@ -290,6 +290,12 @@ public sealed class MainForm : Form
                 .ScanAsync(statusOnly, _shutdown.Token)
                 .ConfigureAwait(true);
 
+            // The window can be closed while a scan is in flight - a cold WMI namespace
+            // takes the better part of a second, and auto-refresh can fire one every
+            // second. Touching controls after that would raise ObjectDisposedException
+            // and pop an error dialog after the application has already closed (BUG-003).
+            if (IsDisposed || Disposing) return;
+
             _snapshot = snapshot;
             _lastScanLocal = DateTime.Now;
             UpdateBatterySelector();
@@ -304,12 +310,15 @@ public sealed class MainForm : Form
         {
             // A scan must never take the window down (SRS 19).
             _log.Error("Battery scan failed.", ex);
-            _statusLeft.Text = "Battery information could not be read. Use Refresh to try again.";
+            if (!IsDisposed && !Disposing)
+            {
+                _statusLeft.Text = "Battery information could not be read. Use Refresh to try again.";
+            }
         }
         finally
         {
             _scanning = false;
-            _refreshButton.Enabled = true;
+            if (!IsDisposed && !Disposing) _refreshButton.Enabled = true;
         }
     }
 
@@ -331,7 +340,9 @@ public sealed class MainForm : Form
         try
         {
             string[] labels = _snapshot.Batteries
-                .Select(b => $"Battery {b.Info.Index + 1} - {HealthLabel(b)}")
+                .Select(b => b.Info.IsConfirmedPeripheral
+                    ? $"{b.Info.DisplayName} (not this PC's battery)"
+                    : $"Battery {b.Info.Index + 1} - {HealthLabel(b)}")
                 .ToArray();
 
             bool changed = _batterySelector.Items.Count != labels.Length

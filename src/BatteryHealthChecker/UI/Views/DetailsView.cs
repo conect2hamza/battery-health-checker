@@ -19,6 +19,7 @@ public sealed class DetailsView : ViewBase
     private readonly MetricCard _diagnostics = new("Data sources");
 
     private readonly MetricRow _name, _manufacturer, _model, _serial, _chemistry, _manufactured, _unique;
+    private readonly MetricRow _systemBattery;
     private readonly MetricRow _design, _full, _current, _health, _rawHealth, _wear, _grade, _unit;
     private readonly MetricRow _voltage, _designVoltage, _power, _currentFlow;
     private readonly MetricRow _state, _ac, _cycles, _temperature, _runtime, _critical;
@@ -36,6 +37,7 @@ public sealed class DetailsView : ViewBase
         _chemistry = _identity.AddRow("Chemistry");
         _manufactured = _identity.AddRow("Manufacture Date");
         _unique = _identity.AddRow("Unique ID");
+        _systemBattery = _identity.AddRow("System Battery");
 
         _design = _capacity.AddRow("Design Capacity");
         _full = _capacity.AddRow("Full Charge Capacity");
@@ -119,6 +121,13 @@ public sealed class DetailsView : ViewBase
         _chemistry.Value = BatteryStatusService.Chemistry(info);
         _manufactured.Value = BatteryStatusService.ManufactureDate(info.ManufactureDate);
         _unique.Value = BatteryStatusService.Text(info.UniqueId);
+        _systemBattery.Value = info.IsSystemBattery switch
+        {
+            true => "Yes - this computer's own battery",
+            false => "No - an attached battery device",
+            _ => Strings.NotAvailable,
+        };
+        _systemBattery.ValueColor = info.IsConfirmedPeripheral ? theme.Fair : null;
 
         _design.Value = BatteryStatusService.Capacity(info.DesignCapacity, info.CapacityUnit);
         _full.Value = BatteryStatusService.Capacity(info.FullChargeCapacity, info.CapacityUnit);

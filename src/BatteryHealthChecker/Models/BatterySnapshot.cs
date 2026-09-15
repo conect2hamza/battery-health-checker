@@ -22,8 +22,25 @@ public sealed class BatterySnapshot
     /// <summary>System-wide AC state, valid even when no battery is present.</summary>
     public AcPowerState AcPower { get; init; } = AcPowerState.Unknown;
 
-    /// <summary>True when Windows reports no battery at all (SRS 19: desktop case).</summary>
+    /// <summary>True when any battery device was detected, system or otherwise.</summary>
     public bool HasBattery => Batteries.Count > 0;
+
+    /// <summary>
+    /// True when at least one detected battery is usable as the machine's own pack.
+    /// A machine with only a UPS attached has batteries but no system battery, and the
+    /// dashboard must say so rather than reporting the UPS's health as the laptop's.
+    /// </summary>
+    public bool HasSystemBattery => Batteries.Any(b => !b.Info.IsConfirmedPeripheral);
+
+    /// <summary>
+    /// True when Windows positively reported that this machine has no system battery
+    /// (BATTERY_FLAG_NO_BATTERY). Used to reject phantom device entries (BUG-002).
+    /// </summary>
+    public bool SystemReportsNoBattery { get; init; }
+
+    /// <summary>Batteries the hardware identified as not being the system pack.</summary>
+    public IEnumerable<BatteryReading> PeripheralBatteries =>
+        Batteries.Where(b => b.Info.IsConfirmedPeripheral);
 
     /// <summary>
     /// Non-fatal problems hit while collecting, e.g. a device that refused a query.

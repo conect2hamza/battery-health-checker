@@ -54,23 +54,4 @@ public class MeasuredTests
         Assert.Equal("not positive", validated.Note);
     }
 
-    [Fact]
-    public void FromNullable_collapses_null_to_unavailable()
-    {
-        Assert.False(Measured<int>.FromNullable(null, DataSource.WmiAcpi).IsAvailable);
-        Assert.True(Measured<int>.FromNullable(7, DataSource.WmiAcpi).IsAvailable);
-    }
-
-    [Fact]
-    public void Select_preserves_availability_and_source()
-    {
-        Measured<int> millivolts = Measured<int>.From(11_400, DataSource.BatteryIoctl);
-
-        Measured<double> volts = millivolts.Select(v => v / 1000.0);
-
-        Assert.True(volts.IsAvailable);
-        Assert.Equal(11.4, volts.Value, 6);
-        Assert.Equal(DataSource.BatteryIoctl, volts.Source);
-        Assert.False(Measured<int>.Unavailable().Select(v => v / 1000.0).IsAvailable);
-    }
 }

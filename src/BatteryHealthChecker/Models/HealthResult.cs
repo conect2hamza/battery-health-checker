@@ -7,6 +7,9 @@ public enum HealthUnavailableReason
     NoDesignCapacity,
     NoFullChargeCapacity,
     NonPositiveDesignCapacity,
+
+    /// <summary>The full-charge capacity was reported but is not a usable value.</summary>
+    InvalidFullChargeCapacity,
     NotFinite,
 }
 
