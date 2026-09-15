@@ -67,17 +67,31 @@ Three states are used, and the distinction matters:
 
 These need a real Windows laptop and cannot be closed from CI:
 
-1. **Running the application at all.** It compiles cleanly and the non-UI layers are
-   covered by 92 passing tests, but no one has launched the window.
-2. **SRS 27 hardware matrix** — Dell, HP, Lenovo, ASUS, Acer, MSI, Surface. Vendor ACPI
+1. **SRS 27 hardware matrix** — Dell, HP, Lenovo, ASUS, Acer, MSI, Surface. Vendor ACPI
    implementations differ in exactly the places this tool reads, so this is the test that
    matters most and the one that has not happened.
-3. **Clean-machine and USB execution** (SRS 28) — the CI check proves the publish output
+2. **Clean-machine and USB execution** (SRS 28) — the CI check proves the publish output
    is a lone EXE, not that it launches on a machine with no runtime installed.
-4. **Live states** — charging, discharging, fully charged, AC connected/disconnected,
+3. **Live states** — charging, discharging, fully charged, AC connected/disconnected,
    degraded and severely degraded batteries, and a genuine multi-battery machine.
-5. **Standard-user vs administrator behaviour** on hardware that actually denies access,
+4. **Standard-user vs administrator behaviour** on hardware that actually denies access,
    which is the path that decides whether the administrator hint is ever shown.
 
 The first run on real hardware is where the ACPI edge cases will surface. Everything above
 is written to degrade to `Not Available` rather than crash when they do.
+
+## Startup crash in 1.0.0, fixed in 1.0.1
+
+Version 1.0.0 failed on launch with *"Control does not support transparent background
+colors."* Four custom controls assigned `Color.Transparent` without first setting
+`ControlStyles.SupportsTransparentBackColor`, which a bare `Control` rejects at
+construction; `Panel`, `TableLayoutPanel`, `UserControl` and `ButtonBase` set that flag
+themselves, which is why the controls derived from those were unaffected.
+
+The real failure was in the tests, not the fix: 92 tests covered the calculation,
+merging and reporting layers and not one of them constructed a control, so a defect that
+made the application unable to start got a green build. `UiSmokeTests` now constructs and
+paints every control and every view, in both themes, against five snapshot shapes -
+normal, second battery selected, no battery, nothing reported, and an implausible
+reading. Constructing a control catches this class of defect; painting it catches the
+next one.

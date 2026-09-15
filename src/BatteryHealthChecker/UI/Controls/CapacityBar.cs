@@ -18,8 +18,13 @@ public sealed class CapacityBar : Control
 
     public CapacityBar()
     {
+        // SupportsTransparentBackColor must be set before BackColor is assigned below:
+        // a plain Control throws "Control does not support transparent background
+        // colors" otherwise. Panel and UserControl set this flag themselves; Control
+        // does not.
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
-                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw
+                 | ControlStyles.SupportsTransparentBackColor, true);
         Height = 46;
         BackColor = Color.Transparent;
     }
