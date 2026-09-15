@@ -1,0 +1,122 @@
+name: Build portable EXE
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+jobs:
+  build:
+    name: ${{ matrix.rid }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, win-arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore BatteryHealthChecker.sln
+
+      - name: Build
+        run: dotnet build BatteryHealthChecker.sln -c Release --no-restore
+
+      # Tests cover the calculation, validation, merging and reporting layers. They do
+      # not require a battery, so they run on the hosted runner.
+      - name: Test
+        run: dotnet test tests/BatteryHealthChecker.Tests/BatteryHealthChecker.Tests.csproj -c Release --no-build --verbosity normal
+
+      - name: Publish single-file portable EXE
+        run: >
+          dotnet publish src/BatteryHealthChecker/BatteryHealthChecker.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained true
+          -o publish/${{ matrix.rid }}
+
+      # SRS 28: the release directory must contain BatteryHealthChecker.exe and nothing
+      # else that the application needs. This is the automated form of that check - a
+      # regression in the publish settings fails the build rather than shipping a folder.
+      - name: Verify single-file contract
+        shell: pwsh
+        run: |
+          $dir = "publish/${{ matrix.rid }}"
+          $files = Get-ChildItem -Path $dir -Recurse -File
+          Write-Host "Published files:"
+          $files | ForEach-Object {
+            "{0,12:N0}  {1}" -f $_.Length, $_.FullName.Substring((Resolve-Path $dir).Path.Length + 1)
+          } | Write-Host
+
+          $exe = Join-Path $dir 'BatteryHealthChecker.exe'
+          if (-not (Test-Path $exe)) {
+            throw "BatteryHealthChecker.exe was not produced."
+          }
+
+          # Debug symbols are a build output, not a runtime dependency, so they are the
+          # one permitted extra; anything else means the EXE is not self-contained.
+          $extra = $files | Where-Object {
+            $_.Name -ne 'BatteryHealthChecker.exe' -and $_.Extension -ne '.pdb'
+          }
+          if ($extra) {
+            $names = ($extra | ForEach-Object { $_.Name }) -join ', '
+            throw "The publish folder contains files beside the EXE: $names"
+          }
+
+          $size = (Get-Item $exe).Length
+          Write-Host "BatteryHealthChecker.exe = $([math]::Round($size / 1MB, 1)) MB"
+          if ($size -lt 1MB) { throw "The produced EXE is implausibly small." }
+
+      - name: Stage artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Copy-Item "publish/${{ matrix.rid }}/BatteryHealthChecker.exe" `
+            -Destination "artifacts/BatteryHealthChecker.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BatteryHealthChecker-${{ matrix.rid }}
+          path: artifacts/BatteryHealthChecker.exe
+          if-no-files-found: error
+
+  release:
+    name: Attach EXEs to release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+
+      - name: Name each build by its architecture
+        run: |
+          mkdir -p release
+          for dir in downloaded/BatteryHealthChecker-*; do
+            rid="${dir##*BatteryHealthChecker-}"
+            cp "$dir/BatteryHealthChecker.exe" "release/BatteryHealthChecker-$rid.exe"
+          done
+          ls -lh release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
+          fail_on_unmatched_files: true
